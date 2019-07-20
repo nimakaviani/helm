@@ -1,19 +1,19 @@
 #@data/values
 ---
 Release:
-  Name: release-name
+  Name: ytt-release
   Service: release-sv
   Namespace: release-ns
 Chart:
-  Name: chart-name
+  Name: my-chart
   AppVersion: chart-appver
   Version: chart-ver
 
 nameOverride:
 replicaCount: 2
 image:
-  repository: nginx
-  tag: stable
+  repository: nimak/knative-sample-app
+  tag: v1
   pullPolicy: IfNotPresent
 service:
   name: nginx

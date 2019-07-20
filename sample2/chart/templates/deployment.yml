@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
       - name: #@ data.values.Chart.Name
-        image: #@ "{}-{}".format(data.values.image.repository, data.values.image.tag)
+        image: #@ "{}:{}".format(data.values.image.repository, data.values.image.tag)
         imagePullPolicy: #@ data.values.image.pullPolicy
         ports:
         - containerPort: #@ data.values.service.internalPort
