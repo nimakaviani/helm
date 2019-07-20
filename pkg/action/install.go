@@ -38,7 +38,6 @@ import (
 	"helm.sh/helm/pkg/chartutil"
 	"helm.sh/helm/pkg/cli"
 	"helm.sh/helm/pkg/downloader"
-	"helm.sh/helm/pkg/engine"
 	"helm.sh/helm/pkg/getter"
 	"helm.sh/helm/pkg/hooks"
 	"helm.sh/helm/pkg/release"
@@ -46,6 +45,7 @@ import (
 	"helm.sh/helm/pkg/repo"
 	"helm.sh/helm/pkg/strvals"
 	"helm.sh/helm/pkg/version"
+	"helm.sh/helm/pkg/yttengine"
 )
 
 // releaseNameMaxLen is the maximum length of a release name.
@@ -337,7 +337,7 @@ func (c *Configuration) renderResources(ch *chart.Chart, values chartutil.Values
 		}
 	}
 
-	files, err := engine.Render(ch, values)
+	files, err := yttengine.Render(ch, values)
 	if err != nil {
 		return hs, b, "", err
 	}
