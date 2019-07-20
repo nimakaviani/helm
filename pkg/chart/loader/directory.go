@@ -47,7 +47,7 @@ func LoadDir(dir string) (*chart.Chart, error) {
 	}
 
 	// Just used for errors.
-	c := &chart.Chart{}
+	c := &chart.Chart{Path: dir}
 
 	rules := ignore.Empty()
 	ifile := filepath.Join(topdir, ignore.HelmIgnore)
@@ -103,5 +103,5 @@ func LoadDir(dir string) (*chart.Chart, error) {
 		return c, err
 	}
 
-	return LoadFiles(files)
+	return LoadFiles(dir, files)
 }

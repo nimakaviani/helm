@@ -51,14 +51,14 @@ func LoadFile(name string) (*chart.Chart, error) {
 	}
 	defer raw.Close()
 
-	return LoadArchive(raw)
+	return LoadArchive(name, raw)
 }
 
 // LoadArchive loads from a reader containing a compressed tar archive.
-func LoadArchive(in io.Reader) (*chart.Chart, error) {
+func LoadArchive(path string, in io.Reader) (*chart.Chart, error) {
 	unzipped, err := gzip.NewReader(in)
 	if err != nil {
-		return &chart.Chart{}, err
+		return &chart.Chart{Path: path}, err
 	}
 	defer unzipped.Close()
 
@@ -108,5 +108,5 @@ func LoadArchive(in io.Reader) (*chart.Chart, error) {
 		return nil, errors.New("no files in chart archive")
 	}
 
-	return LoadFiles(files)
+	return LoadFiles(path, files)
 }

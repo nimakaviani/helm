@@ -2,6 +2,7 @@ package yttengine
 
 import (
 	"fmt"
+	"path/filepath"
 
 	cmdcore "github.com/k14s/ytt/pkg/cmd/core"
 	"github.com/k14s/ytt/pkg/cmd/template"
@@ -41,8 +42,7 @@ func (e YttEngine) Render(chrt *chart.Chart, values chartutil.Values) (map[strin
 	var paths []string
 	for _, f := range chrt.Templates {
 		fmt.Println(f.Name)
-		// TODO: figure out how to deal with chart path
-		paths = append(paths, fmt.Sprintf("chart/%s", f.Name))
+		paths = append(paths, filepath.Join(chrt.Path, f.Name))
 	}
 	println("----")
 

@@ -35,6 +35,9 @@ type Chart struct {
 	// e.g. README, LICENSE, etc.
 	Files []*File
 
+	// Path for the chart
+	Path string
+
 	parent       *Chart
 	dependencies []*Chart
 }

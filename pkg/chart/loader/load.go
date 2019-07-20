@@ -68,8 +68,8 @@ type BufferedFile struct {
 }
 
 // LoadFiles loads from in-memory files.
-func LoadFiles(files []*BufferedFile) (*chart.Chart, error) {
-	c := new(chart.Chart)
+func LoadFiles(path string, files []*BufferedFile) (*chart.Chart, error) {
+	c := &chart.Chart{Path: path}
 	subcharts := make(map[string][]*BufferedFile)
 
 	for _, f := range files {
@@ -148,7 +148,7 @@ func LoadFiles(files []*BufferedFile) (*chart.Chart, error) {
 				return c, errors.Errorf("error unpacking tar in %s: expected %s, got %s", c.Name(), n, file.Name)
 			}
 			// Untar the chart and add to c.Dependencies
-			sc, err = LoadArchive(bytes.NewBuffer(file.Data))
+			sc, err = LoadArchive(path, bytes.NewBuffer(file.Data))
 		default:
 			// We have to trim the prefix off of every file, and ignore any file
 			// that is in charts/, but isn't actually a chart.
@@ -161,7 +161,7 @@ func LoadFiles(files []*BufferedFile) (*chart.Chart, error) {
 				f.Name = parts[1]
 				buff = append(buff, f)
 			}
-			sc, err = LoadFiles(buff)
+			sc, err = LoadFiles(path, buff)
 		}
 
 		if err != nil {
