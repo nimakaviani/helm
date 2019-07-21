@@ -62,7 +62,9 @@ func (e YttEngine) Render(chrt *chart.Chart, values chartutil.Values) (map[strin
 	}
 
 	outputs := opt.RunWithFiles(templates, cmdcore.NewPlainUI(false))
-	// fileSource.Output(outputs)
+	if outputs.Err != nil {
+		return nil, outputs.Err
+	}
 
 	result := make(map[string]string)
 	for _, output := range outputs.Files {

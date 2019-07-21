@@ -24,7 +24,6 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"sigs.k8s.io/yaml"
 
 	"helm.sh/helm/pkg/chart"
 	"helm.sh/helm/pkg/chart/loader"
@@ -50,7 +49,8 @@ const (
 	// NotesName is the name of the example NOTES.txt file.
 	NotesName = "NOTES.txt"
 	// HelpersName is the name of the example NOTES.txt file.
-	HelpersName = "_helpers.tpl"
+	HelpersStarName = "helpers.star"
+	HelpersLibName  = "helpers.lib.yml"
 )
 
 const defaultChartfile = `apiVersion: v1
@@ -76,53 +76,41 @@ version: 0.1.0
 appVersion: 1.16.0
 `
 
-const defaultValues = `# Default values for %s.
-# This is a YAML-formatted file.
-# Declare variables to be passed into your templates.
+const defaultValues = `#! Default values for %s.
+#@data/values
+---
+Release:
+  Name: release-name
+  Service: release-sv
+  Namespace: release-ns
+Chart:
+  Name: chart-name
+  AppVersion: chart-appver
+  Version: chart-ver
 
+nameOverride:
 replicaCount: 1
-
 image:
   repository: nginx
+  tag: stable
   pullPolicy: IfNotPresent
-
-nameOverride: ""
-fullnameOverride: ""
-
 service:
+  name: nginx
   type: ClusterIP
-  port: 80
-
+  externalPort: 80
+  internalPort: 80
 ingress:
   enabled: false
-  annotations: {}
-    # kubernetes.io/ingress.class: nginx
-    # kubernetes.io/tls-acme: "true"
-  path: /
   hosts:
-    - chart-example.local
-  tls: []
-  #  - secretName: chart-example-tls
-  #    hosts:
-  #      - chart-example.local
-
-resources: {}
-  # We usually recommend not to specify default resources and to leave this as a conscious
-  # choice for the user. This also increases chances charts run on environments with little
-  # resources, such as Minikube. If you do want to specify resources, uncomment the following
-  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
-  # limits:
-  #  cpu: 100m
-  #  memory: 128Mi
-  # requests:
-  #  cpu: 100m
-  #  memory: 128Mi
-
-nodeSelector: {}
-
-tolerations: []
-
-affinity: {}
+  - chart-example.local
+  annotations:
+    #! kubernetes.io/ingress.class: nginx
+    #! kubernetes.io/tls-acme: "true"
+  tls:
+    #! Secrets must be manually created in the namespace.
+    #! - secretName: chart-example-tls
+    #!   hosts:
+    #!     - chart-example.local
 `
 
 const defaultIgnore = `# Patterns to ignore when building packages.
@@ -148,177 +136,139 @@ const defaultIgnore = `# Patterns to ignore when building packages.
 *.tmproj
 `
 
-const defaultIngress = `{{- if .Values.ingress.enabled -}}
-{{- $fullName := include "<CHARTNAME>.fullname" . -}}
-{{- $ingressPath := .Values.ingress.path -}}
-apiVersion: networking.k8s.io/v1beta1
+const defaultIngress = `#@ load("@ytt:data", "data")
+#@ load("helpers.star", "fullname")
+#@ load("helpers.lib.yml", "labels")
+
+#@ if/end data.values.ingress.enabled:
+---
+apiVersion: extensions/v1beta1
 kind: Ingress
 metadata:
-  name: {{ $fullName }}
-  labels:
-{{ include "<CHARTNAME>.labels" . | indent 4 }}
-  {{- with .Values.ingress.annotations }}
-  annotations:
-{{ toYaml . | indent 4 }}
-{{- end }}
+  name: #@ fullname(data.values)
+  labels: #@ labels(data.values)
+  #@ if/end data.values.ingress.annotations:
+  annotations: #@ data.values.ingress.annotations
 spec:
-{{- if .Values.ingress.tls }}
-  tls:
-  {{- range .Values.ingress.tls }}
-    - hosts:
-      {{- range .hosts }}
-        - {{ . }}
-      {{- end }}
-      secretName: {{ .secretName }}
-  {{- end }}
-{{- end }}
   rules:
-  {{- range .Values.ingress.hosts }}
-    - host: {{ . }}
+    #@ for/end host in data.values.ingress.hosts:
+    - host: #@ host
       http:
         paths:
-          - path: {{ $ingressPath }}
+          - path: /
             backend:
-              serviceName: {{ $fullName }}
-              servicePort: http
-  {{- end }}
-{{- end }}
+              serviceName: #@ fullname(data.values)
+              servicePort: #@ data.values.service.externalPort
+  #@ if/end data.values.ingress.tls:
+  tls: #@ data.values.ingress.tls
+
 `
 
-const defaultDeployment = `apiVersion: apps/v1beta2
+const defaultDeployment = `#! example is based on the following github repo: https://bit.ly/2EoYwuN
+
+#@ load("@ytt:data", "data")
+#@ load("helpers.star", "fullname", "name")
+#@ load("helpers.lib.yml", "labels")
+
+apiVersion: extensions/v1beta1
 kind: Deployment
 metadata:
-  name: {{ template "<CHARTNAME>.fullname" . }}
-  labels:
-{{ include "<CHARTNAME>.labels" . | indent 4 }}
+  name: #@ fullname(data.values)
+  labels: #@ labels(data.values)
 spec:
-  replicas: {{ .Values.replicaCount }}
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: {{ include "<CHARTNAME>.name" . }}
-      app.kubernetes.io/instance: {{ .Release.Name }}
+  replicas: #@ data.values.replicaCount
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: {{ include "<CHARTNAME>.name" . }}
-        app.kubernetes.io/instance: {{ .Release.Name }}
+        app: #@ name(data.values)
+        release: #@ data.values.Release.Name
     spec:
       containers:
-        - name: {{ .Chart.Name }}
-          image: "{{ .Values.image.repository }}:{{ .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          ports:
-            - name: http
-              containerPort: 80
-              protocol: TCP
-          livenessProbe:
-            httpGet:
-              path: /
-              port: http
-          readinessProbe:
-            httpGet:
-              path: /
-              port: http
-          resources:
-{{ toYaml .Values.resources | indent 12 }}
-    {{- with .Values.nodeSelector }}
-      nodeSelector:
-{{ toYaml . | indent 8 }}
-    {{- end }}
-    {{- with .Values.affinity }}
-      affinity:
-{{ toYaml . | indent 8 }}
-    {{- end }}
-    {{- with .Values.tolerations }}
-      tolerations:
-{{ toYaml . | indent 8 }}
-    {{- end }}
+      - name: #@ data.values.Chart.Name
+        image: #@ "{}-{}".format(data.values.image.repository, data.values.image.tag)
+        imagePullPolicy: #@ data.values.image.pullPolicy
+        ports:
+        - containerPort: #@ data.values.service.internalPort
+        livenessProbe:
+          httpGet:
+            path: /
+            port: #@ data.values.service.internalPort
+        readinessProbe:
+          httpGet:
+            path: /
+            port: #@ data.values.service.internalPort
+
 `
 
-const defaultService = `apiVersion: v1
+const defaultService = `#@ load("@ytt:data", "data")
+#@ load("helpers.star", "fullname", "name")
+#@ load("helpers.lib.yml", "labels")
+
+apiVersion: v1
 kind: Service
 metadata:
-  name: {{ template "<CHARTNAME>.fullname" . }}
-  labels:
-{{ include "<CHARTNAME>.labels" . | indent 4 }}
+  name: #@ fullname(data.values)
+  labels: #@ labels(data.values)
 spec:
-  type: {{ .Values.service.type }}
+  type: #@ data.values.service.type
   ports:
-    - port: {{ .Values.service.port }}
-      targetPort: http
+    - port: #@ data.values.service.externalPort
+      targetPort: #@ data.values.service.internalPort
       protocol: TCP
-      name: http
+      name: #@ data.values.service.name
   selector:
-    app.kubernetes.io/name: {{ include "<CHARTNAME>.name" . }}
-    app.kubernetes.io/instance: {{ .Release.Name }}
+    app: #@ name(data.values)
+    release: #@ data.values.Release.Name
+
 `
 
-const defaultNotes = `1. Get the application URL by running these commands:
-{{- if .Values.ingress.enabled }}
-{{- range .Values.ingress.hosts }}
-  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ . }}{{ $.Values.ingress.path }}
-{{- end }}
-{{- else if contains "NodePort" .Values.service.type }}
-  export NODE_PORT=$(kubectl get -o jsonpath="{.spec.ports[0].nodePort}" services {{ template "<CHARTNAME>.fullname" . }})
-  export NODE_IP=$(kubectl get nodes -o jsonpath="{.items[0].status.addresses[0].address}")
+const defaultNotes = `(@ load("@ytt:data", "data") @)
+(@ load("helpers.star", "fullname", "name") -@)
+
+1. Get the application URL by running these commands:
+(@- if data.values.ingress.enabled: @)
+  (@- for h in data.values.ingress.hosts: @)
+    http(@= "s" if data.values.ingress.tls else "" @)://(@= h @)
+  (@ end @)
+(@ elif data.values.service.type == "NodePort": @)
+  export NODE_PORT=$(kubectl get --namespace (@= data.values.Release.Namespace @) -o jsonpath="{.spec.ports[0].nodePort}" services (@= fullname(data.values) @))
+  export NODE_IP=$(kubectl get nodes --namespace (@= data.values.Release.Namespace @) -o jsonpath="{.items[0].status.addresses[0].address}")
   echo http://$NODE_IP:$NODE_PORT
-{{- else if contains "LoadBalancer" .Values.service.type }}
-     NOTE: It may take a few minutes for the LoadBalancer IP to be available.
-           You can watch the status of by running 'kubectl get svc -w {{ template "<CHARTNAME>.fullname" . }}'
-  export SERVICE_IP=$(kubectl get svc {{ template "<CHARTNAME>.fullname" . }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-  echo http://$SERVICE_IP:{{ .Values.service.port }}
-{{- else if contains "ClusterIP" .Values.service.type }}
-  export POD_NAME=$(kubectl get pods -l "app={{ template "<CHARTNAME>.name" . }},release={{ .Release.Name }}" -o jsonpath="{.items[0].metadata.name}")
+(@- elif data.values.service.type == "LoadBalancer": @)
+NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+You can watch the status of by running 'kubectl get svc -w (@= fullname(data.values) @)'
+  export SERVICE_IP=$(kubectl get svc --namespace (@= data.values.Release.Namespace @) (@= fullname(data.values) @) -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+  echo http://$SERVICE_IP:(@= str(data.values.service.externalPort) @)
+(@- elif data.values.service.type == "ClusterIP": @)
+  export POD_NAME=$(kubectl get pods --namespace (@= data.values.Release.Namespace @) -l "app.kubernetes.io/name=(@= name(data.values) @),app.kubernetes.io/instance=(@= data.values.Release.Name @)" -o jsonpath="{.items[0].metadata.name}")
   echo "Visit http://127.0.0.1:8080 to use your application"
   kubectl port-forward $POD_NAME 8080:80
-{{- end }}
+(@ end -@)
+
 `
 
-const defaultHelpers = `{{/* vim: set filetype=mustache: */}}
-{{/*
-Expand the name of the chart.
-*/}}
-{{- define "<CHARTNAME>.name" -}}
-{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
-{{- end -}}
+const defaultHelpersStar = `def name(vars):
+  return kube_clean_name(vars.Chart.Name or vars.Values.nameOverride)
+end
 
-{{/*
-Create a default fully qualified app name.
-We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
-If release name contains chart name it will be used as a full name.
-*/}}
-{{- define "<CHARTNAME>.fullname" -}}
-{{- if .Values.fullnameOverride -}}
-{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" -}}
-{{- else -}}
-{{- $name := default .Chart.Name .Values.nameOverride -}}
-{{- if contains $name .Release.Name -}}
-{{- .Release.Name | trunc 63 | trimSuffix "-" -}}
-{{- else -}}
-{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" -}}
-{{- end -}}
-{{- end -}}
-{{- end -}}
+def fullname(vars):
+  name = vars.Chart.Name or vars.Values.nameOverride
+  return kube_clean_name("{}-{}".format(vars.Release.Name, name))
+end
 
-{{/*
-Create chart name and version as used by the chart label.
-*/}}
-{{- define "<CHARTNAME>.chart" -}}
-{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" -}}
-{{- end -}}
+def kube_clean_name(name):
+  return name[:63].rstrip("-")
+end
+`
 
-{{/*
-Common labels
-*/}}
-{{- define "<CHARTNAME>.labels" -}}
-app.kubernetes.io/name: {{ include "<CHARTNAME>.name" . }}
-helm.sh/chart: {{ include "<CHARTNAME>.chart" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
-{{- if .Chart.AppVersion }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
-{{- end }}
-app.kubernetes.io/managed-by: {{ .Release.Service }}
-{{- end -}}
+const defaultHelpersLib = `#@ load("helpers.star", "name")
+
+#@ def labels(vars):
+app: #@ name(vars)
+chart: #@ "{}-{}".format(vars.Chart.Name, vars.Chart.Version).replace("+", "_")
+release: #@ vars.Release.Name
+heritage: #@ vars.Release.Service
+#@ end
 `
 
 // CreateFrom creates a new chart, but scaffolds it from the src chart.
@@ -338,17 +288,6 @@ func CreateFrom(chartfile *chart.Metadata, dest, src string) error {
 	}
 
 	schart.Templates = updatedTemplates
-	b, err := yaml.Marshal(schart.Values)
-	if err != nil {
-		return err
-	}
-
-	var m map[string]interface{}
-	if err := yaml.Unmarshal(transform(string(b), schart.Name()), &m); err != nil {
-		return err
-	}
-	schart.Values = m
-
 	return SaveDir(schart, dest)
 }
 
@@ -402,7 +341,7 @@ func Create(name, dir string) (string, error) {
 		},
 		{
 			// values.yaml
-			path:    filepath.Join(cdir, ValuesfileName),
+			path:    filepath.Join(cdir, TemplatesDir, ValuesfileName),
 			content: []byte(fmt.Sprintf(defaultValues, name)),
 		},
 		{
@@ -432,8 +371,13 @@ func Create(name, dir string) (string, error) {
 		},
 		{
 			// _helpers.tpl
-			path:    filepath.Join(cdir, TemplatesDir, HelpersName),
-			content: transform(defaultHelpers, name),
+			path:    filepath.Join(cdir, TemplatesDir, HelpersStarName),
+			content: transform(defaultHelpersStar, name),
+		},
+		{
+			// _helpers.tpl
+			path:    filepath.Join(cdir, TemplatesDir, HelpersLibName),
+			content: transform(defaultHelpersLib, name),
 		},
 	}
 
